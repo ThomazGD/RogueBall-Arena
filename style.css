@@ -1,0 +1,215 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; font-family: Arial, Helvetica, sans-serif; background: #070b12; color: #fff; }
+#app, #gameCanvas { width: 100vw; height: 100vh; display: block; }
+#gameCanvas { outline: none; cursor: crosshair; }
+.hidden { display: none !important; }
+.hud { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; z-index: 10; padding: 10px; border: 1px solid rgba(255,255,255,.12); background: rgba(8, 12, 20, .72); backdrop-filter: blur(12px); border-radius: 18px; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+.hud div { min-width: 82px; padding: 8px 10px; background: rgba(255,255,255,.08); border-radius: 12px; text-align: center; }
+.hud strong { display: block; font-size: 11px; color: #9fb0c8; text-transform: uppercase; letter-spacing: .06em; }
+.hud span { display: block; margin-top: 3px; font-size: 18px; font-weight: 800; }
+.screen { position: fixed; inset: 0; display: grid; place-items: center; z-index: 20; background: radial-gradient(circle at center, rgba(28,55,85,.72), rgba(4,7,12,.94)); padding: 20px; }
+.card { width: min(620px, 92vw); background: rgba(12, 18, 30, .88); border: 1px solid rgba(255,255,255,.12); border-radius: 28px; padding: 34px; text-align: center; box-shadow: 0 24px 80px rgba(0,0,0,.45); }
+.card.large { width: min(900px, 94vw); }
+h1 { margin: 6px 0 12px; font-size: clamp(36px, 7vw, 72px); line-height: .92; }
+h2 { margin: 6px 0 12px; font-size: clamp(30px, 5vw, 52px); }
+p { color: #dbe7f7; line-height: 1.5; }
+.tag { display: inline-flex; padding: 8px 12px; background: rgba(255, 178, 55, .13); color: #ffd17a; border: 1px solid rgba(255, 178, 55, .25); border-radius: 999px; font-size: 13px; font-weight: 700; }
+.tag.danger { background: rgba(255, 72, 72, .15); color: #ff9a9a; border-color: rgba(255, 72, 72, .25); }
+.controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 22px 0; }
+.controls span { padding: 12px; border-radius: 14px; background: rgba(255,255,255,.07); color: #f6f9ff; }
+button { border: 0; border-radius: 999px; padding: 14px 26px; background: linear-gradient(135deg, #ffb237, #ff7038); color: #15100a; font-size: 17px; font-weight: 900; cursor: pointer; box-shadow: 0 14px 34px rgba(255, 128, 45, .25); transition: transform .15s ease, filter .15s ease; }
+button:hover { transform: translateY(-2px); filter: brightness(1.08); }
+.upgrade-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 22px; }
+.upgrade-card { padding: 22px; min-height: 190px; border-radius: 22px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.08); text-align: left; cursor: pointer; transition: transform .15s ease, background .15s ease; }
+.upgrade-card:hover { transform: translateY(-4px); background: rgba(255,255,255,.13); }
+.upgrade-card h3 { margin: 0 0 8px; font-size: 22px; color: #fff; }
+.upgrade-card p { margin: 0; color: #c9d8ef; }
+.help { position: fixed; left: 20px; bottom: 20px; z-index: 10; max-width: 460px; padding: 12px 14px; border-radius: 14px; background: rgba(8, 12, 20, .7); border: 1px solid rgba(255,255,255,.12); color: #dce8f9; }
+@media (max-width: 800px) { .hud { flex-wrap: wrap; width: calc(100vw - 20px); top: 10px; } .hud div { flex: 1; min-width: 80px; } .upgrade-options, .controls { grid-template-columns: 1fr; } }
+
+.section-title { margin: 20px 0 10px; color: #ffd17a; text-align: left; font-size: 18px; }
+.enemy-card-box { padding: 18px 20px; margin: 10px 0 18px; border-radius: 18px; border: 1px solid rgba(255,80,80,.28); background: rgba(255,80,80,.10); text-align: left; }
+.enemy-card-box h3 { margin: 0 0 6px; color: #ffb1b1; }
+.enemy-card-box p { margin: 0 0 8px; }
+.enemy-card-box small { color: #ffcccc; }
+.upgrade-card.selected { outline: 3px solid #ffd447; background: rgba(255, 212, 71, .16); transform: translateY(-3px); }
+.card-pick h3 { color: #9ee7ff; }
+#continueRoundBtn { margin-top: 6px; }
+@media (max-height: 820px) { .card.large { max-height: 94vh; overflow: auto; } .upgrade-card { min-height: 140px; padding: 16px; } }
+
+.energy-card { min-width: 112px !important; }
+.stamina-bar { width: 100%; height: 7px; margin-top: 6px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.12); }
+.stamina-bar i { display: block; height: 100%; width: 100%; border-radius: inherit; background: linear-gradient(90deg, #21e6a8, #ffd447); transition: width .12s linear, background .12s linear; }
+
+/* ===== Kings League / RPG overlay + minimapa ===== */
+.match-overlay {
+  position: fixed;
+  top: 86px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 11;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  pointer-events: none;
+}
+.scoreboard-pro {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(7,10,18,.86), rgba(20,28,44,.78));
+  border: 1px solid rgba(255,255,255,.16);
+  box-shadow: 0 16px 45px rgba(0,0,0,.34);
+  backdrop-filter: blur(10px);
+}
+.scoreboard-pro strong {
+  min-width: 72px;
+  text-align: center;
+  font-size: 24px;
+  letter-spacing: .04em;
+}
+.team-pill {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .09em;
+  padding: 7px 10px;
+  border-radius: 999px;
+}
+.team-pill.blue { background: rgba(56,149,255,.18); color: #9ed1ff; border: 1px solid rgba(56,149,255,.35); }
+.team-pill.red { background: rgba(255,61,69,.18); color: #ffb4b8; border: 1px solid rgba(255,61,69,.35); }
+.tactical-line {
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(9,14,23,.65);
+  color: #dbeafe;
+  border: 1px solid rgba(255,255,255,.12);
+  font-size: 12px;
+  text-shadow: 0 2px 12px rgba(0,0,0,.7);
+}
+.minimap-wrap {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 12;
+  width: 240px;
+  padding: 10px;
+  border-radius: 18px;
+  background: rgba(7, 11, 18, .72);
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 18px 50px rgba(0,0,0,.38);
+  backdrop-filter: blur(10px);
+}
+.minimap-title {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  color: #bcd3ef;
+  text-transform: uppercase;
+  margin: 0 0 7px 2px;
+}
+#miniMap {
+  display: block;
+  width: 220px;
+  height: 280px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.16);
+  background: rgba(12,70,45,.6);
+}
+@media (max-width: 900px) {
+  .minimap-wrap { width: 180px; right: 10px; bottom: 10px; }
+  #miniMap { width: 160px; height: 200px; }
+  .match-overlay { top: 156px; }
+}
+
+
+/* ===== Chute/passe carregado e apresentação de gol ===== */
+.charge-hud {
+  position: fixed;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  z-index: 16;
+  width: 320px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(8, 12, 20, .78);
+  backdrop-filter: blur(10px);
+  text-align: center;
+  box-shadow: 0 14px 40px rgba(0,0,0,.38);
+}
+.charge-hud span { display:block; font-weight:900; font-size:13px; text-transform:uppercase; color:#dff8ff; letter-spacing:.08em; }
+.charge-hud small { display:block; margin-top:5px; color:#9fb0c8; font-size:11px; }
+.charge-meter { height: 13px; margin-top: 7px; border-radius: 999px; background: rgba(255,255,255,.12); overflow: hidden; }
+.charge-meter i { display:block; width:0%; height:100%; border-radius:999px; background: linear-gradient(90deg, #21e6a8, #ffd447, #ff5b5b); transition: width .04s linear; }
+.goal-burst {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(.86);
+  transition: opacity .14s ease, transform .18s ease;
+  background: radial-gradient(circle, rgba(255,255,255,.16), rgba(0,0,0,0) 56%);
+}
+.goal-burst.show { opacity: 1; transform: scale(1); }
+.goal-burst strong { font-size: clamp(52px, 9vw, 128px); font-weight: 1000; color: #fff; text-shadow: 0 18px 60px rgba(0,0,0,.8), 0 0 40px rgba(255,255,255,.35); }
+.goal-burst span { margin-top: 8px; padding: 8px 18px; border-radius: 999px; background: rgba(8,12,20,.78); color: #dff8ff; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.goal-burst.blue strong { color: #7fd3ff; }
+.goal-burst.red strong { color: #ff7f88; }
+
+
+/* ===== HUD esquerdo de estilo do time ===== */
+.tactical-controls {
+  position: fixed;
+  left: 18px;
+  top: 110px;
+  z-index: 13;
+  width: 172px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(7, 11, 18, .74);
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 18px 50px rgba(0,0,0,.35);
+  backdrop-filter: blur(10px);
+}
+.tactical-title {
+  font-size: 11px;
+  font-weight: 1000;
+  letter-spacing: .11em;
+  color: #bcd3ef;
+  text-align: center;
+}
+.tactical-controls button {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  background: rgba(255,255,255,.08);
+  color: #eaf4ff;
+  box-shadow: none;
+  border: 1px solid rgba(255,255,255,.12);
+}
+.tactical-controls button.active {
+  background: linear-gradient(135deg, #37a4ff, #21e6a8);
+  color: #06111d;
+  border-color: rgba(255,255,255,.35);
+}
+.tactical-controls small {
+  color: #9fb0c8;
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: center;
+}
+@media (max-width: 900px) {
+  .tactical-controls { top: auto; bottom: 225px; left: 10px; width: 148px; }
+  .tactical-controls button { font-size: 11px; padding: 8px; }
+}

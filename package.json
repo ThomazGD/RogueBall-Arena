@@ -1,0 +1,13 @@
+{
+  "name": "rogueball-3d-arena",
+  "version": "1.0.0",
+  "description": "Roguelike RPG 3D com futebol e basquete no navegador.",
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve .",
+    "start": "npx serve ."
+  },
+  "keywords": ["threejs", "roguelike", "rpg", "basketball", "football", "soccer"],
+  "author": "",
+  "license": "MIT"
+}

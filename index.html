@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RogueBall 3D Football - Procedural + Goleiros</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="hud" class="hud hidden">
+      <div><strong>Gols</strong><span id="hudScore">0</span></div>
+      <div><strong>Jogador</strong><span id="hudPlayer">Você</span></div>
+      <div><strong>Bola</strong><span id="hudBall">Solta</span></div>
+      <div><strong>Vida</strong><span id="hudHp">100</span></div>
+      <div class="energy-card"><strong>Estamina</strong><span id="hudEnergy">100</span><div class="stamina-bar"><i id="hudEnergyBar"></i></div></div>
+      <div><strong>XP</strong><span id="hudXp">0</span></div>
+      <div><strong>Nível</strong><span id="hudLevel">1</span></div>
+      <div><strong>Rodada</strong><span id="hudRound">1</span></div>
+      <div><strong>Tempo</strong><span id="hudTime">120</span></div>
+      <div><strong>Formato</strong><span id="hudMatchup">2x2</span></div>
+      <div><strong>IA A/R | G</strong><span id="hudIntel">55/55 | G 55/55</span></div>
+      <div><strong>Cartas</strong><span id="hudCards">-</span></div>
+    </div>
+
+
+
+    <div id="chargeHud" class="charge-hud hidden">
+      <span id="chargeLabel">Força</span>
+      <div class="charge-meter"><i id="chargeBar"></i></div>
+      <small>Solte o botão para executar</small>
+    </div>
+
+    <div id="matchOverlay" class="match-overlay hidden">
+      <div class="scoreboard-pro">
+        <span class="team-pill blue">AZUL</span>
+        <strong id="scoreboardScore">0 - 0</strong>
+        <span class="team-pill red">RIVAL</span>
+      </div>
+      <div class="tactical-line" id="tacticalLine">IA tática ativa • Câmera transmissão</div>
+    </div>
+
+
+    <div id="tacticalControls" class="tactical-controls hidden">
+      <div class="tactical-title">ESTILO DO TIME</div>
+      <button data-tactic="balanced" class="active">Equilibrado</button>
+      <button data-tactic="aggressive">Agressivo</button>
+      <button data-tactic="defensive">Defensivo</button>
+      <button data-tactic="passing">Mais passes</button>
+      <small>Afeta só o seu time: apoio, marcação, passes e avanço.</small>
+    </div>
+
+    <div id="minimapWrap" class="minimap-wrap hidden">
+      <div class="minimap-title">Mini mapa</div>
+      <canvas id="miniMap" width="220" height="280"></canvas>
+    </div>
+
+    <div id="menu" class="screen">
+      <div class="card">
+        <p class="tag">Roguelike RPG + Futebol 3D</p>
+        <h1>RogueBall 3D Football</h1>
+        <p>
+          Controle jogadores procedurais com animações próprias, faça passes, peça a bola,
+          chute para o gol e enfrente goleiros com IA própria que evolui a cada rodada.
+        </p>
+        <div class="controls">
+          <span>WASD: mover</span>
+          <span>2x W: correr com estamina</span>
+          <span>Mouse: mirar</span>
+          <span>Segure M1: carregar chute</span>
+          <span>Segure M2: carregar passe / profundidade</span>
+          <span>Left Shift: trocar jogador</span>
+          <span>2x W: correr | Shift: troca para o aliado naquela direção</span>
+          <span>Seta amarela: próximo jogador da troca</span>
+          <span>Q + WASD: dribles diferentes</span>
+          <span>Espaço: tentar roubar</span>
+          <span>F: carrinho</span>
+          <span>E: pedir a bola</span>
+          <span>Goleiros: IA própria + área exclusiva</span>
+          <span>1/2/3: câmeras Jogador/FIFA/Bola</span>
+          <span>Mini mapa: canto direito</span>
+        </div>
+        <button id="startBtn">Jogar</button>
+      </div>
+    </div>
+
+    <div id="upgradeScreen" class="screen hidden">
+      <div class="card large">
+        <p class="tag">Fim da rodada</p>
+        <h2>Escolha 1 melhoria e 1 carta</h2>
+        <p id="roundSummary"></p>
+        <h3 class="section-title">Melhoria fixa do time</h3>
+        <div id="upgradeOptions" class="upgrade-options"></div>
+        <h3 class="section-title">Carta Kings League do jogador</h3>
+        <div id="cardOptions" class="upgrade-options"></div>
+        <h3 class="section-title">Carta automática do rival</h3>
+        <div id="enemyCardBox" class="enemy-card-box"></div>
+        <button id="continueRoundBtn">Despausar partida</button>
+      </div>
+    </div>
+
+    <div id="gameover" class="screen hidden">
+      <div class="card">
+        <p class="tag danger">Game Over</p>
+        <h2>Fim de jogo</h2>
+        <p id="finalScore"></p>
+        <button id="restartBtn">Reiniciar</button>
+      </div>
+    </div>
+
+    <div id="help" class="help hidden">
+      <b>Controles:</b> WASD move, 2x W corre com estamina, mouse mira chute, segure M1 carrega chute, segure M2 carrega passe/profundidade, Q+WASD dribla, seta amarela mostra quem você troca com Shift, Espaço rouba, F dá carrinho e E pede a bola. Goleiro nerfado: ainda defende, mas 1x1 agora é possível. 1/2/3 troca câmera. Mini mapa no canto direito mostra jogadores, goleiros e bola.
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
