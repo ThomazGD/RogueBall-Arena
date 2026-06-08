@@ -32,7 +32,7 @@ export class Game {
 
     this.state = 'menu';
     this.round = 1;
-    this.timeLeft = CONFIG.roundSeconds;
+    this.timeLeft = this.initialSettings?.roundSeconds || CONFIG.roundSeconds;
     this.difficulty = 1;
     this.controlledIndex = 0;
     this.callCooldown = 0;
@@ -46,14 +46,16 @@ export class Game {
     this.cameraMode = CONFIG.camera?.defaultMode || 'broadcast';
     this.tacticalStyle = 'balanced'; // balanced | aggressive | defensive | passing
     this.pendingRecruits = { blue: 0, red: 0 };
+    this.initialSettings = { cameraMode: CONFIG.camera?.defaultMode || 'broadcast', tacticalStyle: 'balanced', difficultyPreset: 'normal', roundSeconds: CONFIG.roundSeconds };
 
+    const diffMul = this.getDifficultyMultiplier();
     this.teamBrains = {
       blue: { ...CONFIG.ai.baseBrain },
-      red: { ...CONFIG.ai.baseBrain }
+      red: Object.fromEntries(Object.entries(CONFIG.ai.baseBrain).map(([k, v]) => [k, Math.min(1.35, v * diffMul)]))
     };
     this.goalieBrains = {
       blue: { ...CONFIG.goalkeeper.baseBrain },
-      red: { ...CONFIG.goalkeeper.baseBrain }
+      red: Object.fromEntries(Object.entries(CONFIG.goalkeeper.baseBrain).map(([k, v]) => [k, Math.min(1.30, v * diffMul)]))
     };
     this.modifiers = this.blankModifiers();
 
@@ -68,6 +70,33 @@ export class Game {
 
     window.addEventListener('resize', () => this.resize());
     this.setupTacticalControls();
+  }
+
+  configure(settings = {}) {
+    this.initialSettings = {
+      ...this.initialSettings,
+      ...settings,
+      roundSeconds: Number(settings.roundSeconds || this.initialSettings.roundSeconds || CONFIG.roundSeconds)
+    };
+  }
+
+  pause() {
+    if (this.state !== 'playing') return;
+    this.state = 'paused';
+  }
+
+  resume() {
+    if (this.state !== 'paused') return;
+    this.state = 'playing';
+    this.clock.getDelta();
+    this.flashText('Partida retomada', 24, 650);
+  }
+
+  getDifficultyMultiplier() {
+    const preset = this.initialSettings?.difficultyPreset || 'normal';
+    if (preset === 'easy') return 0.88;
+    if (preset === 'hard') return 1.12;
+    return 1;
   }
 
   blankModifiers() {
@@ -212,26 +241,27 @@ export class Game {
   start() {
     this.state = 'playing';
     this.round = 1;
-    this.timeLeft = CONFIG.roundSeconds;
+    this.timeLeft = this.initialSettings?.roundSeconds || CONFIG.roundSeconds;
     this.difficulty = 1;
     this.controlledIndex = 0;
     this.callCooldown = 0;
     this.blueCount = CONFIG.team.startBlueCount;
     this.redCount = CONFIG.team.startRedCount;
+    const diffMul = this.getDifficultyMultiplier();
     this.teamBrains = {
       blue: { ...CONFIG.ai.baseBrain },
-      red: { ...CONFIG.ai.baseBrain }
+      red: Object.fromEntries(Object.entries(CONFIG.ai.baseBrain).map(([k, v]) => [k, Math.min(1.35, v * diffMul)]))
     };
     this.goalieBrains = {
       blue: { ...CONFIG.goalkeeper.baseBrain },
-      red: { ...CONFIG.goalkeeper.baseBrain }
+      red: Object.fromEntries(Object.entries(CONFIG.goalkeeper.baseBrain).map(([k, v]) => [k, Math.min(1.30, v * diffMul)]))
     };
     this.modifiers = this.blankModifiers();
     this.lastEnemyCard = null;
     this.lastPlayerCard = null;
     this.enemyScore = 0;
-    this.cameraMode = CONFIG.camera?.defaultMode || 'broadcast';
-    this.tacticalStyle = 'balanced';
+    this.cameraMode = this.initialSettings?.cameraMode || CONFIG.camera?.defaultMode || 'broadcast';
+    this.tacticalStyle = this.initialSettings?.tacticalStyle || 'balanced';
     this.pendingRecruits = { blue: 0, red: 0 };
     this.spawnTeams();
     for (const p of [...this.allies, ...this.enemies, ...this.goalkeepers]) {
@@ -250,7 +280,7 @@ export class Game {
       this.loopStarted = true;
       this.loop();
     }
-    this.flashText('Kings League: 2x2 começou!', 34, 1200);
+    this.flashText('RogueBall começou!', 34, 1200);
   }
 
   loop() {

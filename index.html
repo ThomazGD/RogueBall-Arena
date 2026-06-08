@@ -57,32 +57,131 @@
       <canvas id="miniMap" width="220" height="280"></canvas>
     </div>
 
-    <div id="menu" class="screen">
-      <div class="card">
-        <p class="tag">Roguelike RPG + Futebol 3D</p>
-        <h1>RogueBall 3D Football</h1>
-        <p>
-          Controle jogadores procedurais com animações próprias, faça passes, peça a bola,
-          chute para o gol e enfrente goleiros com IA própria que evolui a cada rodada.
-        </p>
-        <div class="controls">
-          <span>WASD: mover</span>
-          <span>2x W: correr com estamina</span>
-          <span>Mouse: mirar</span>
-          <span>Segure M1: carregar chute</span>
-          <span>Segure M2: carregar passe / profundidade</span>
-          <span>Left Shift: trocar jogador</span>
-          <span>2x W: correr | Shift: troca para o aliado naquela direção</span>
-          <span>Seta amarela: próximo jogador da troca</span>
-          <span>Q + WASD: dribles diferentes</span>
-          <span>Espaço: tentar roubar</span>
-          <span>F: carrinho</span>
-          <span>E: pedir a bola</span>
-          <span>Goleiros: IA própria + área exclusiva</span>
-          <span>1/2/3: câmeras Jogador/FIFA/Bola</span>
-          <span>Mini mapa: canto direito</span>
+    <div id="menu" class="screen main-menu-screen">
+      <div class="menu-shell">
+        <div class="menu-hero">
+          <p class="tag">Kings League RPG + Futebol 3D</p>
+          <h1>RogueBall 3D</h1>
+          <p class="menu-lead">
+            Monte seu time, escolha o estilo tático e entre em uma partida 3D com dribles,
+            chutes carregados, goleiros com IA e evolução por rodada.
+          </p>
+          <div class="menu-actions">
+            <button id="startBtn" class="primary-action">Jogar agora</button>
+            <button class="ghost-action" data-menu-panel="howto">Como jogar</button>
+            <button class="ghost-action" data-menu-panel="settings">Configurações</button>
+          </div>
+          <div class="menu-stats">
+            <span><b>3</b>Câmeras</span>
+            <span><b>4</b>Estilos</span>
+            <span><b>Q+</b>Dribles</span>
+            <span><b>IA</b>Tática</span>
+          </div>
         </div>
-        <button id="startBtn">Jogar</button>
+
+        <div class="menu-side">
+          <div class="menu-tabs">
+            <button data-menu-panel="overview" class="active">Início</button>
+            <button data-menu-panel="howto">Controles</button>
+            <button data-menu-panel="settings">Ajustes</button>
+            <button data-menu-panel="credits">Créditos</button>
+          </div>
+
+          <div class="menu-panel active" id="panel-overview">
+            <h2>Partida rápida</h2>
+            <p>
+              Seu time começa com jogadores de linha e goleiro. A cada rodada a IA evolui,
+              reservas entram pelo banco e você escolhe melhorias para mudar o ritmo da partida.
+            </p>
+            <div class="feature-grid">
+              <div><strong>Chute carregado</strong><small>Segure M1 e solte.</small></div>
+              <div><strong>Passe forte</strong><small>Segure M2 para profundidade.</small></div>
+              <div><strong>Dribles</strong><small>Use Q + WASD.</small></div>
+              <div><strong>Tática</strong><small>Altere o estilo pelo HUD.</small></div>
+            </div>
+          </div>
+
+          <div class="menu-panel" id="panel-howto">
+            <h2>Como jogar</h2>
+            <div class="controls compact">
+              <span>WASD: mover</span>
+              <span>2x W: correr</span>
+              <span>Mouse: mirar</span>
+              <span>M1: chutar</span>
+              <span>Segurar M1: força do chute</span>
+              <span>M2: passar</span>
+              <span>Segurar M2: passe forte</span>
+              <span>W + M2: profundidade</span>
+              <span>Q + W/A/S/D: dribles</span>
+              <span>Shift: trocar jogador</span>
+              <span>Espaço: roubar</span>
+              <span>F: carrinho</span>
+              <span>E: pedir bola</span>
+              <span>1/2/3: câmeras</span>
+              <span>Esc: pausar</span>
+            </div>
+          </div>
+
+          <div class="menu-panel" id="panel-settings">
+            <h2>Configurações iniciais</h2>
+            <label class="setting-row">
+              <span>Câmera inicial</span>
+              <select id="settingCamera">
+                <option value="broadcast" selected>Transmissão/FIFA</option>
+                <option value="follow">Jogador</option>
+                <option value="ball">Bola</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span>Estilo inicial</span>
+              <select id="settingTactic">
+                <option value="balanced" selected>Equilibrado</option>
+                <option value="aggressive">Agressivo</option>
+                <option value="defensive">Defensivo</option>
+                <option value="passing">Mais passes</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span>Dificuldade rival</span>
+              <select id="settingDifficulty">
+                <option value="easy">Mais leve</option>
+                <option value="normal" selected>Normal</option>
+                <option value="hard">Mais forte</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span>Duração da rodada</span>
+              <select id="settingRoundTime">
+                <option value="90">90 segundos</option>
+                <option value="120" selected>120 segundos</option>
+                <option value="180">180 segundos</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="menu-panel" id="panel-credits">
+            <h2>Créditos</h2>
+            <p>
+              Projeto experimental feito em JavaScript e Three.js. Os personagens, animações,
+              IA, HUD, mini mapa e mecânicas foram construídos de forma procedural para manter
+              o projeto leve e fácil de evoluir.
+            </p>
+            <p class="small-note">Versão protótipo: menu inicial, futebol 3D, IA tática e progressão por rodada.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="pauseScreen" class="screen pause-screen hidden">
+      <div class="card pause-card">
+        <p class="tag">Partida pausada</p>
+        <h2>RogueBall 3D</h2>
+        <p>Escolha se quer continuar a partida, reiniciar ou voltar ao menu inicial.</p>
+        <div class="pause-actions">
+          <button id="resumeBtn">Continuar</button>
+          <button id="pauseRestartBtn" class="ghost-action">Reiniciar</button>
+          <button id="backToMenuBtn" class="ghost-action">Menu inicial</button>
+        </div>
       </div>
     </div>
 
