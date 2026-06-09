@@ -24,6 +24,7 @@ export class Input {
       callBall: false,
       steal: false,
       slide: false,
+      header: false,
       dribble: null,
       cameraMode: null
     };
@@ -45,6 +46,7 @@ export class Input {
       if (key === '1') this.actions.cameraMode = 'follow';
       if (key === '2') this.actions.cameraMode = 'broadcast';
       if (key === '3') this.actions.cameraMode = 'ball';
+      if (key === '4') this.actions.cameraMode = 'firstPerson';
 
       if (e.code === 'ShiftLeft') this.actions.switchPlayer = true;
       if (key === 'e') this.actions.callBall = true;
@@ -61,7 +63,9 @@ export class Input {
 
       if (e.code === 'Space') {
         e.preventDefault();
-        this.actions.steal = true;
+        // Espaço agora tenta cabecear quando a bola estiver alta.
+        // Se não houver bola aérea, o Game usa o mesmo botão como roubo em pé.
+        this.actions.header = true;
       }
 
       if (key === 'f') this.actions.slide = true;
@@ -127,6 +131,7 @@ export class Input {
   consumeSwitchPlayer() { return this.consume('switchPlayer'); }
   consumeCallBall() { return this.consume('callBall'); }
   consumeSteal() { return this.consume('steal'); }
+  consumeHeader() { return this.consume('header'); }
   consumeSlide() { return this.consume('slide'); }
   consumeDribble() {
     const value = this.actions.dribble;

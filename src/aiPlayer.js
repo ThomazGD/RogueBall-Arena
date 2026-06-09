@@ -9,6 +9,8 @@ export class AIPlayer extends Player {
     this.damageCooldown = 0;
     this.decisionTimer = 0;
     this.tackleCooldown = Math.random() * 0.35;
+    this.aiDribbleCooldown = Math.random() * 0.8;
+    this.aiSlideCooldown = Math.random() * 0.8;
     this.brainThinkTimer = 0;
     this.smoothedTarget = this.position.clone();
     this.personality = options.personality || 'balanced';
@@ -32,11 +34,37 @@ export class AIPlayer extends Player {
     this.damageCooldown = Math.max(0, this.damageCooldown - dt);
     this.decisionTimer = Math.max(0, this.decisionTimer - dt);
     this.tackleCooldown = Math.max(0, this.tackleCooldown - dt);
+    this.aiDribbleCooldown = Math.max(0, this.aiDribbleCooldown - dt);
+    this.aiSlideCooldown = Math.max(0, this.aiSlideCooldown - dt);
+    this.slideCooldown = Math.max(0, this.slideCooldown - dt);
+    this.slideTimer = Math.max(0, this.slideTimer - dt);
+    this.dribbleTimer = Math.max(0, this.dribbleTimer - dt);
     this.brainThinkTimer = Math.max(0, this.brainThinkTimer - dt);
     this.actionTimer = Math.max(0, this.actionTimer - dt);
 
     const teamBrain = teamBrains[this.team] || CONFIG.ai.baseBrain;
     const brain = this.mixBrain(teamBrain);
+
+    if (this.dribbleTimer > 0) {
+      this.velocity.copy(this.dribbleDir).multiplyScalar(this.dribbleSpeed);
+      this.position.addScaledVector(this.velocity, dt);
+      this.lastMoveDir.copy(this.dribbleDir);
+      this.facingDir.copy(this.dribbleDir);
+      this.action = 'dribble';
+      arena.clampPosition(this.position, this.radius);
+      this.syncMesh(dt);
+      return;
+    }
+
+    if (this.slideTimer > 0) {
+      this.velocity.copy(this.lastMoveDir).multiplyScalar(CONFIG.player.slideSpeed * 0.92);
+      this.position.addScaledVector(this.velocity, dt);
+      this.action = 'slide';
+      arena.clampPosition(this.position, this.radius);
+      this.syncMesh(dt);
+      return;
+    }
+
     const myTeam = this.team === 'blue' ? allies : enemies;
     const otherTeam = this.team === 'blue' ? enemies : allies;
     const enemyGoal = arena.getGoalCenter(this.team);
@@ -83,18 +111,28 @@ export class AIPlayer extends Player {
       const openShot = this.hasClearLane(enemyGoal, otherTeam, 2.35 - brain.vision * 0.75);
       const directLane = Math.abs(this.position.x) < CONFIG.arena.goalWidth * 0.78;
       const pressure = this.getNearestDistance(otherTeam, this.position);
+      const recentRebound = ball.lastKickInfo?.type === 'keeperParry' && ball.lastKickInfo.age < 2.2;
+      const badAngle = Math.abs(this.position.x) > CONFIG.arena.goalWidth * 0.72;
+      const passTarget = this.findBestPass(myTeam, otherTeam, enemyGoal, brain);
 
-      // Rival e aliado com bola precisam ter intenção: não ficar só tocando eternamente.
-      // Se chegou perto, livre ou com goleiro exposto, decide finalizar ou carregar para ângulo melhor.
-      if (distToGoal < CONFIG.ai.shotDistance + brain.shooting * 7.5 && (openShot || directLane || pressure > 5.8 || brain.shooting > 1.0)) {
+      // Rebote não deve virar sempre uma corrida reta e chute seco.
+      // Em rebote, a IA primeiro tenta pensar: cutback, passe para quem chega de trás,
+      // ou drible curto para melhorar ângulo. Só finaliza direto se a chance for clara.
+      if (recentRebound && passTarget && (badAngle || pressure < 5.2 || Math.random() < 0.58 + brain.passing * 0.15)) {
+        return passTarget.position.clone().lerp(enemyGoal, 0.12);
+      }
+
+      // Rival e aliado com bola precisam ter intenção, mas sem virar NPC kamikaze.
+      // Se está com ângulo ruim ou veio de rebote, o chute direto exige mais clareza.
+      const clearFinish = openShot && !badAngle && pressure > 3.0;
+      if (!recentRebound && distToGoal < CONFIG.ai.shotDistance + brain.shooting * 7.5 && (clearFinish || directLane || pressure > 5.8 || brain.shooting > 1.05)) {
         return enemyGoal;
       }
 
-      const passTarget = this.findBestPass(myTeam, otherTeam, enemyGoal, brain);
-      const stylePassBias = tacticalStyle === 'passing' ? 1.18 : tacticalStyle === 'aggressive' || tacticalStyle === 'direct' ? 0.42 : tacticalStyle === 'defensive' ? 0.95 : 0.76;
-      const mustPass = pressure < 3.7 || (tacticalStyle === 'passing' && pressure < 7.5);
-      if (passTarget && mustPass && Math.random() < (0.20 + brain.passing * 0.15) * stylePassBias) {
-        return passTarget.position.clone().lerp(enemyGoal, tacticalStyle === 'aggressive' || tacticalStyle === 'direct' ? 0.42 : 0.20);
+      const stylePassBias = tacticalStyle === 'passing' ? 1.18 : tacticalStyle === 'aggressive' || tacticalStyle === 'direct' ? 0.62 : tacticalStyle === 'defensive' ? 0.95 : 0.82;
+      const mustPass = pressure < 3.7 || badAngle || recentRebound || (tacticalStyle === 'passing' && pressure < 7.5);
+      if (passTarget && mustPass && Math.random() < (0.24 + brain.passing * 0.18) * stylePassBias) {
+        return passTarget.position.clone().lerp(enemyGoal, tacticalStyle === 'aggressive' || tacticalStyle === 'direct' ? 0.32 : 0.18);
       }
 
       // Condução com bola: avança no corredor menos congestionado.
@@ -334,7 +372,33 @@ export class AIPlayer extends Player {
     const openShot = this.hasClearLane(enemyGoal, otherTeam, 2.35 - brain.vision * 0.65);
     const goalAngleGood = Math.abs(this.position.x) < CONFIG.arena.goalWidth * (0.75 + brain.shooting * 0.12);
     const styleShotBoost = tacticalStyle === 'aggressive' || tacticalStyle === 'direct' ? 8.5 : tacticalStyle === 'defensive' ? -4.5 : 0;
-    const shouldShoot = distToGoal < CONFIG.ai.shotDistance + brain.shooting * 7.0 + styleShotBoost && (openShot || goalAngleGood || brain.shooting > 1.00 || tacticalStyle === 'direct');
+    const recentRebound = ball.lastKickInfo?.type === 'keeperParry' && ball.lastKickInfo.age < 2.2;
+    const badAngle = Math.abs(this.position.x) > CONFIG.arena.goalWidth * 0.72;
+    const nearestPressure = this.getNearestDistance(otherTeam, this.position);
+    const passTarget = this.findBestPass(myTeam, otherTeam, enemyGoal, brain);
+    const oneMorePass = recentRebound && passTarget && (badAngle || nearestPressure < 5.4 || Math.random() < 0.58 + brain.passing * 0.14);
+    const shouldShoot = !oneMorePass && distToGoal < CONFIG.ai.shotDistance + brain.shooting * 7.0 + styleShotBoost && (openShot || goalAngleGood || brain.shooting > 1.04 || (tacticalStyle === 'direct' && !recentRebound));
+
+    if (oneMorePass) {
+      const distance = this.position.distanceTo(passTarget.position);
+      const through = passTarget.role === 'striker' && Math.random() < 0.28 + brain.vision * 0.12;
+      if (through) {
+        const attackSign = this.team === 'blue' ? -1 : 1;
+        const point = passTarget.position.clone();
+        point.z += attackSign * (3.8 + brain.vision * 3.2);
+        point.x = THREE.MathUtils.clamp(point.x, -arena.width / 2 + 3, arena.width / 2 - 3);
+        point.z = THREE.MathUtils.clamp(point.z, -arena.depth / 2 + 4, arena.depth / 2 - 4);
+        ball.passToPoint(this, point, (this.passPower || CONFIG.ai.passPower) + distance * 0.30, 0.24);
+      } else {
+        ball.pass(this, passTarget, (this.passPower || CONFIG.ai.passPower) + distance * 0.35);
+      }
+      this.playPassAnimation();
+      this.markShot(0.74);
+      return;
+    }
+
+    const dribbled = this.tryAIDribble(ball, arena, otherTeam, enemyGoal, brain, tacticalStyle, nearestPressure, distToGoal);
+    if (dribbled) return;
 
     if (shouldShoot) {
       const aimError = Math.max(0.015, (1.18 - brain.shooting) * 0.13);
@@ -342,14 +406,16 @@ export class AIPlayer extends Player {
       target.x += (Math.random() - 0.5) * CONFIG.arena.goalWidth * Math.max(0.15, 0.55 - brain.shooting * 0.18);
       const dir = target.sub(this.position).normalize();
       dir.x += (Math.random() - 0.5) * aimError;
-      ball.kick(this, dir.normalize(), (this.kickPower || CONFIG.ai.kickPower) * (this.team === 'red' ? Math.min(1.35, difficulty) : 1.05), 0.42);
+      const shotCharge = THREE.MathUtils.clamp(0.42 + brain.shooting * 0.23 + Math.random() * 0.28, 0.35, 0.95);
+      const highShot = shotCharge > 0.66 || Math.random() < 0.28 + brain.shooting * 0.10;
+      const shotPower = (this.kickPower || CONFIG.ai.kickPower) * (this.team === 'red' ? Math.min(1.12, difficulty) : 1.08) * (0.86 + shotCharge * 0.40);
+      const lift = highShot ? THREE.MathUtils.clamp(1.4 + shotCharge * 6.4, 1.6, 7.6) : (0.5 + shotCharge * 1.7);
+      ball.kick(this, dir.normalize(), shotPower, lift, highShot ? 'highKick' : 'kick');
       this.playKickAnimation();
       this.markShot();
       return;
     }
 
-    const passTarget = this.findBestPass(myTeam, otherTeam, enemyGoal, brain);
-    const nearestPressure = this.getNearestDistance(otherTeam, this.position);
     const passBias = tacticalStyle === 'passing' ? 0.64 : tacticalStyle === 'defensive' ? 0.42 : tacticalStyle === 'aggressive' || tacticalStyle === 'direct' ? 0.14 : 0.28;
     const mustRelease = nearestPressure < 4.3 + brain.vision * 1.1;
     if (passTarget && (mustRelease || Math.random() < passBias + brain.passing * 0.10)) {
@@ -368,17 +434,68 @@ export class AIPlayer extends Player {
     }
   }
 
+  tryAIDribble(ball, arena, otherTeam, enemyGoal, brain, tacticalStyle, pressure, distToGoal) {
+    if (ball.owner !== this) return false;
+    if (this.aiDribbleCooldown > 0 || this.dribbleTimer > 0 || this.energy < 14) return false;
+    if (pressure > 5.2 && !(tacticalStyle === 'direct' && distToGoal < 24)) return false;
+
+    const nearest = this.getClosest(otherTeam, this.position);
+    const toGoal = enemyGoal.clone().sub(this.position);
+    toGoal.y = 0;
+    if (toGoal.lengthSq() === 0) toGoal.set(0, 0, this.team === 'blue' ? -1 : 1);
+    toGoal.normalize();
+
+    const right = new THREE.Vector3(toGoal.z, 0, -toGoal.x).normalize();
+    let dir = toGoal.clone();
+    let kind = 'forward';
+
+    if (nearest) {
+      const away = this.position.clone().sub(nearest.position);
+      away.y = 0;
+      if (away.lengthSq() > 0.01) {
+        away.normalize();
+        const sideScore = away.dot(right);
+        if (pressure < 2.7) {
+          kind = sideScore >= 0 ? 'right' : 'left';
+          dir.copy(right).multiplyScalar(sideScore >= 0 ? 1 : -1).addScaledVector(toGoal, 0.28).normalize();
+        } else if (distToGoal < 16 && Math.random() < 0.35) {
+          kind = 'back';
+          dir.copy(toGoal).multiplyScalar(-1).addScaledVector(right, Math.sign(sideScore || 1) * 0.35).normalize();
+        }
+      }
+    }
+
+    const chance = THREE.MathUtils.clamp(0.10 + brain.dribbling * 0.22 + brain.aggression * 0.06 + (tacticalStyle === 'direct' || tacticalStyle === 'aggressive' ? 0.10 : 0), 0.08, 0.48);
+    if (Math.random() > chance) return false;
+
+    const distance = kind === 'back' ? 1.65 : kind === 'forward' ? 2.35 + brain.dribbling * 0.95 : 2.05 + brain.dribbling * 0.55;
+    const duration = kind === 'back' ? 0.34 : 0.38;
+    this.energy = Math.max(0, this.energy - 12);
+    this.startDribble(kind, dir, distance, duration);
+    this.aiDribbleCooldown = CONFIG.ai.dribbleCooldown * THREE.MathUtils.clamp(1.18 - brain.dribbling * 0.28, 0.68, 1.25);
+    ball.ownerLockTimer = Math.max(ball.ownerLockTimer || 0, 0.20);
+    return true;
+  }
+
   tryTackle(ball, brain, modifiers) {
     if (!ball.owner || ball.owner.team === this.team) return;
     if (this.tackleCooldown > 0 || ball.ownerLockTimer > 0) return;
 
     const carrier = ball.owner;
     const dist = this.position.distanceTo(carrier.position);
-    const range = CONFIG.ai.tackleDistance + brain.aggression * 0.18;
-    if (dist > range) return;
+    const standingRange = CONFIG.ai.tackleDistance + brain.aggression * 0.18;
+    const slideRange = 2.35 + brain.tackling * 0.45;
+    const canSlide = dist <= slideRange && dist > standingRange * 0.82 && this.aiSlideCooldown <= 0 && this.canSlide?.();
+    const willSlide = canSlide && Math.random() < THREE.MathUtils.clamp(0.12 + brain.tackling * 0.20 + brain.aggression * 0.10, 0.08, 0.42);
+    if (dist > standingRange && !willSlide) return;
 
     this.tackleCooldown = CONFIG.ai.tackleCooldown * THREE.MathUtils.clamp(1.2 - brain.reaction * 0.42, 0.55, 1.15);
-    this.playStealAnimation?.();
+    if (willSlide) {
+      this.aiSlideCooldown = CONFIG.ai.slideCooldown * THREE.MathUtils.clamp(1.2 - brain.tackling * 0.25, 0.72, 1.28);
+      this.playSlideAnimation?.();
+    } else {
+      this.playStealAnimation?.();
+    }
 
     const isEnemyTeam = this.team === 'red';
     const damageBoost = isEnemyTeam && modifiers.redTackleBoost > 0 ? 1.45 : 1;
@@ -389,10 +506,10 @@ export class AIPlayer extends Player {
     if (dir.lengthSq() === 0) dir.copy(this.lastMoveDir);
     dir.normalize();
 
-    const stealChance = 0.18 + brain.marking * 0.22 + brain.aggression * 0.14 + (modifiers.redTackleBoost && isEnemyTeam ? 0.14 : 0);
+    const stealChance = (willSlide ? 0.26 : 0.18) + brain.marking * 0.20 + brain.aggression * 0.12 + brain.tackling * 0.14 + (modifiers.redTackleBoost && isEnemyTeam ? 0.10 : 0);
     if (Math.random() < stealChance) {
       ball.setOwner(this, CONFIG.ball.stealLock);
-    } else if (Math.random() < 0.38 + brain.aggression * 0.14) {
+    } else if (Math.random() < (willSlide ? 0.50 : 0.34) + brain.aggression * 0.12 + brain.tackling * 0.06) {
       ball.pokeLoose(this, dir, 5.2 + brain.aggression * 4);
     }
   }

@@ -16,6 +16,7 @@ export class Player {
     this.velocity = new THREE.Vector3();
     this.lastMoveDir = new THREE.Vector3(0, 0, this.team === 'blue' ? -1 : 1);
     this.facingDir = this.lastMoveDir.clone();
+    this.visualFacingDir = this.facingDir.clone();
     this.radius = options.radius || (this.isGoalkeeper ? CONFIG.goalkeeper.radius : CONFIG.player.radius);
 
     this.speed = options.speed || CONFIG.player.speed;
@@ -40,6 +41,10 @@ export class Player {
     this.actionTimer = 0;
     this.action = 'idle';
     this.isSwitchTarget = false;
+
+    this.keeperDiveSide = 1;
+    this.keeperDiveHigh = 0;
+    this.keeperDiveForward = 0;
 
     this.dribbleTimer = 0;
     this.dribbleDuration = 0;
@@ -438,10 +443,19 @@ export class Player {
     }
 
     if (facing.lengthSq() > 0.0001) {
-      // O boneco procedural foi modelado olhando para -Z.
-      // Por isso invertemos o vetor na rotação para WASD bater com a direção visual.
-      const angle = Math.atan2(-facing.x, -facing.z);
-      this.mesh.rotation.y = angle;
+      // Virada suave do WASD, inclusive diagonais WA/WD/SA/SD.
+      // Antes a rotação pulava seca para a direção nova; agora ela interpola
+      // pelo menor caminho angular, deixando o boneco virar como jogador.
+      const targetAngle = Math.atan2(-facing.x, -facing.z);
+      const currentAngle = this.mesh.rotation.y || 0;
+      let delta = targetAngle - currentAngle;
+      delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+      const turnSpeed = this.isGoalkeeper ? 9.5 : (this.isUser ? 13.5 : 10.8);
+      const t = 1 - Math.pow(0.0008, Math.max(0.001, dt) * turnSpeed);
+      this.mesh.rotation.y = currentAngle + delta * THREE.MathUtils.clamp(t, 0, 1);
+
+      this.visualFacingDir.set(-Math.sin(this.mesh.rotation.y), 0, -Math.cos(this.mesh.rotation.y));
+      if (this.visualFacingDir.lengthSq() > 0.0001) this.visualFacingDir.normalize();
     }
 
     this.animate(dt);
@@ -484,6 +498,7 @@ export class Player {
     if (this.action === 'steal') this.animateSteal();
     if (this.action === 'slide') this.animateSlide();
     if (this.action === 'dribble') this.animateDribble();
+    if (this.action === 'header') this.animateHeader();
     if (this.action === 'keeperCatch') this.animateKeeperCatch();
     if (this.action === 'keeperDive') this.animateKeeperDive();
 
@@ -660,6 +675,31 @@ export class Player {
     this.limbs.rightUpperArm.rotation.z = 1.05 * snap;
   }
 
+
+  animateHeader() {
+    const p = this.actionProgress(0.36);
+    const windup = THREE.MathUtils.smoothstep(p, 0, 0.36);
+    const snap = Math.sin(p * Math.PI);
+
+    // Cabeceio: pequena impulsão, tronco prepara para trás e ataca a bola com a testa.
+    this.mesh.position.y = 0.10 * snap;
+    this.parts.hips.position.y = 0.84 + 0.08 * snap;
+    this.parts.spine.rotation.x = 0.22 * windup - 0.68 * snap;
+    this.parts.headGroup.rotation.x = 0.28 * windup - 0.86 * snap;
+
+    // Braços abertos para equilíbrio no salto.
+    this.limbs.leftUpperArm.rotation.z = -1.10 * snap;
+    this.limbs.rightUpperArm.rotation.z = 1.10 * snap;
+    this.limbs.leftUpperArm.rotation.x = -0.35 * snap;
+    this.limbs.rightUpperArm.rotation.x = -0.35 * snap;
+
+    // Joelhos dobram e estendem como salto curto.
+    this.limbs.leftUpperLeg.rotation.x = 0.30 * windup - 0.25 * snap;
+    this.limbs.rightUpperLeg.rotation.x = 0.30 * windup - 0.25 * snap;
+    this.limbs.leftLowerLeg.rotation.x = -0.62 * windup;
+    this.limbs.rightLowerLeg.rotation.x = -0.62 * windup;
+  }
+
   animateKeeperCatch() {
     const p = this.actionProgress(0.38);
     const reach = Math.sin(p * Math.PI);
@@ -673,15 +713,43 @@ export class Player {
   }
 
   animateKeeperDive() {
-    const p = this.actionProgress(0.48);
-    const ease = Math.sin(p * Math.PI);
-    this.mesh.position.y = -0.12 * ease;
-    this.parts.hips.rotation.z = 0.78 * Math.sign(this.lastMoveDir.x || 1);
-    this.parts.spine.rotation.z = 0.38 * Math.sign(this.lastMoveDir.x || 1);
-    this.limbs.leftUpperArm.rotation.x = -1.3;
-    this.limbs.rightUpperArm.rotation.x = -1.3;
-    this.limbs.leftUpperLeg.rotation.x = 0.62;
-    this.limbs.rightUpperLeg.rotation.x = -0.42;
+    const duration = this.keeperDiveDuration || 0.72;
+    const p = this.actionProgress(duration);
+    const side = Math.sign(this.keeperDiveSide || this.lastMoveDir.x || 1);
+    const high = THREE.MathUtils.clamp(this.keeperDiveHigh || 0, 0, 1);
+    const forward = THREE.MathUtils.clamp(this.keeperDiveForward || 0, 0, 1);
+
+    const takeoff = THREE.MathUtils.smoothstep(p, 0.02, 0.30);
+    const flight = Math.sin(Math.PI * THREE.MathUtils.clamp((p - 0.10) / 0.78, 0, 1));
+    const landing = THREE.MathUtils.smoothstep(p, 0.72, 1.0);
+    const stretch = Math.max(takeoff * (1 - landing), flight * 0.9);
+
+    // Ponte do goleiro inspirada em defesa real: o corpo sai de lado,
+    // tronco inclina, braços vão acima/na direção da bola e as pernas abrem.
+    this.mesh.position.y = 0.10 * takeoff + (0.36 + high * 0.42) * flight - 0.16 * landing;
+    this.parts.hips.position.y = 0.84 + 0.14 * takeoff + 0.22 * flight - 0.22 * landing;
+    this.parts.hips.rotation.z = -1.22 * side * stretch;
+    this.parts.hips.rotation.x = -0.18 * forward * stretch;
+    this.parts.spine.rotation.z = -0.78 * side * stretch;
+    this.parts.spine.rotation.x = -0.22 * stretch + 0.18 * high * stretch;
+    this.parts.headGroup.rotation.z = -0.34 * side * stretch;
+    this.parts.headGroup.rotation.x = -0.14 * stretch;
+
+    // Braços estendidos para o canto. Em bola alta, eles sobem mais.
+    this.limbs.leftUpperArm.rotation.x = -1.52 - 0.35 * high;
+    this.limbs.rightUpperArm.rotation.x = -1.52 - 0.35 * high;
+    this.limbs.leftUpperArm.rotation.z = -1.45 * stretch - 0.28 * side * stretch;
+    this.limbs.rightUpperArm.rotation.z = 1.45 * stretch - 0.28 * side * stretch;
+    this.limbs.leftForeArm.rotation.x = -0.52 - 0.25 * high;
+    this.limbs.rightForeArm.rotation.x = -0.52 - 0.25 * high;
+
+    // Pernas em tesoura, igual goleiro no ar: uma estica e a outra compensa.
+    this.limbs.leftUpperLeg.rotation.x = 0.58 * stretch;
+    this.limbs.rightUpperLeg.rotation.x = -0.48 * stretch;
+    this.limbs.leftUpperLeg.rotation.z = -0.38 * side * stretch;
+    this.limbs.rightUpperLeg.rotation.z = 0.68 * side * stretch;
+    this.limbs.leftLowerLeg.rotation.x = -0.42 * stretch;
+    this.limbs.rightLowerLeg.rotation.x = 0.28 * stretch;
   }
 
   playKickAnimation() { this.action = 'kick'; this.actionTimer = 0.34; }
@@ -689,6 +757,7 @@ export class Player {
   playCallAnimation() { this.action = 'call'; this.actionTimer = 0.55; }
   playStealAnimation() { this.action = 'steal'; this.actionTimer = 0.28; }
   playSlideAnimation() { this.action = 'slide'; this.actionTimer = CONFIG.player.slideDuration; this.slideTimer = CONFIG.player.slideDuration; this.slideCooldown = CONFIG.player.slideCooldown; }
+  playHeaderAnimation() { this.action = 'header'; this.actionTimer = 0.36; this.markShot?.(0.62); }
   startDribble(kind = 'neutral', direction = null, distance = 2.8, duration = 0.42) {
     const dir = direction?.clone?.() || this.lastMoveDir.clone();
     dir.y = 0;
@@ -709,7 +778,14 @@ export class Player {
     this.actionTimer = this.dribbleDuration || 0.42;
   }
   playKeeperCatchAnimation() { this.action = 'keeperCatch'; this.actionTimer = 0.38; }
-  playKeeperDiveAnimation() { this.action = 'keeperDive'; this.actionTimer = 0.48; }
+  playKeeperDiveAnimation(side = null, high = 0, forward = 0, duration = 0.72) {
+    this.keeperDiveSide = side == null ? Math.sign(this.lastMoveDir.x || 1) : Math.sign(side || 1);
+    this.keeperDiveHigh = THREE.MathUtils.clamp(high || 0, 0, 1);
+    this.keeperDiveForward = THREE.MathUtils.clamp(forward || 0, 0, 1);
+    this.keeperDiveDuration = duration;
+    this.action = 'keeperDive';
+    this.actionTimer = duration;
+  }
 
   canSteal() { return this.stealCooldown <= 0; }
   markSteal(multiplier = 1) { this.stealCooldown = CONFIG.player.stealCooldown * multiplier; }

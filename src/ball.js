@@ -16,6 +16,18 @@ export class Ball {
     this.looseLockTimer = 0;
     this.lastOwner = null;
 
+    // Informações do último chute/passe.
+    // O goleiro usa esses dados, junto da velocidade atual da bola,
+    // para decidir se deve agarrar, espalmar ou apenas tentar bloquear.
+    this.lastKickInfo = {
+      type: 'none',
+      power: 0,
+      lift: 0,
+      fromTeam: null,
+      fromPlayer: null,
+      age: 999
+    };
+
     const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.32 });
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(this.radius, 32, 22), mat);
     this.mesh.castShadow = true;
@@ -28,6 +40,14 @@ export class Ball {
     this.lastTouchTeam = null;
     this.ownerLockTimer = 0;
     this.looseLockTimer = 0;
+    this.lastKickInfo = {
+      type: 'none',
+      power: 0,
+      lift: 0,
+      fromTeam: null,
+      fromPlayer: null,
+      age: 999
+    };
     this.position.set(0, this.radius, 0);
     this.velocity.set(0, 0, 0);
     this.syncMesh(0.016);
@@ -74,6 +94,7 @@ export class Ball {
 
   update(dt, arena, players = []) {
     this.ownerLockTimer = Math.max(0, this.ownerLockTimer - dt);
+    if (this.lastKickInfo) this.lastKickInfo.age += dt;
     this.looseLockTimer = Math.max(0, this.looseLockTimer - dt);
 
     if (this.owner) {
@@ -92,6 +113,7 @@ export class Ball {
       return;
     }
 
+    const previousPosition = this.position.clone();
     this.velocity.y -= 18 * dt;
     this.position.addScaledVector(this.velocity, dt);
 
@@ -115,21 +137,50 @@ export class Ball {
 
     if (this.velocity.length() < CONFIG.ball.stopSpeed) this.velocity.set(0, 0, 0);
 
-    // Posse de bola livre: escolhe o jogador mais próximo em vez do primeiro do array.
-    // Isso remove a alternância rápida de dono quando dois atletas encostam juntos.
+    // Colisão/controle da bola livre.
+    // 1) Se a bola passar pelo corpo de um jogador em carrinho, ela rebate/é bloqueada.
+    // 2) Se só existe um jogador na disputa e a bola vem controlável, ele domina automaticamente.
     if (this.looseLockTimer <= 0) {
       let bestPlayer = null;
       let bestDistance = Infinity;
       const speed = this.velocity.length();
+      const ballLowEnough = this.position.y <= this.radius + 0.98;
 
       for (const p of players) {
         if (p.hp <= 0) continue;
         const flatDistance = new THREE.Vector2(this.position.x - p.position.x, this.position.z - p.position.z).length();
+        const sweptDistance = this.segmentDistanceToPlayer(previousPosition, this.position, p.position);
+        const isSliding = p.slideTimer > 0 || p.action === 'slide';
 
-        // Bola livre: qualquer time pode pegar só chegando perto, mas somente quando ela está controlável.
-        // Bola em chute forte não gruda em ninguém; isso evita prender/tremer em disputas.
-        const ballIsControllable = speed <= CONFIG.ball.freePickupSpeed;
-        if (flatDistance < this.radius + p.radius + CONFIG.ball.controlDistance && ballIsControllable && flatDistance < bestDistance) {
+        if (isSliding && ballLowEnough && sweptDistance < this.radius + p.radius + 0.82) {
+          const blockDir = this.position.clone().sub(p.position);
+          blockDir.y = 0;
+          if (blockDir.lengthSq() < 0.001) blockDir.copy(p.lastMoveDir || new THREE.Vector3(1, 0, 0));
+          blockDir.normalize();
+          this.owner = null;
+          this.lastOwner = p;
+          this.lastTouchTeam = p.team;
+          this.looseLockTimer = 0.16;
+          this.position.copy(p.position).addScaledVector(blockDir, p.radius + this.radius + 0.15);
+          this.position.y = Math.max(this.radius + 0.05, this.position.y);
+          const absorbed = Math.max(4.8, speed * 0.42);
+          this.velocity.copy(blockDir.multiplyScalar(absorbed));
+          this.velocity.y = Math.max(0.12, this.velocity.y * 0.22);
+          this.lastKickInfo = {
+            type: 'slideBlock',
+            power: absorbed,
+            lift: this.velocity.y,
+            fromTeam: p.team,
+            fromPlayer: p,
+            age: 0
+          };
+          this.syncMesh(dt);
+          return;
+        }
+
+        const controllableByTouch = speed <= CONFIG.ball.freePickupSpeed && ballLowEnough;
+        const cleanReceive = this.canAutoReceive(p, players, speed, flatDistance, sweptDistance);
+        if ((controllableByTouch || cleanReceive) && flatDistance < this.radius + p.radius + CONFIG.ball.controlDistance + (cleanReceive ? 0.62 : 0) && flatDistance < bestDistance) {
           bestDistance = flatDistance;
           bestPlayer = p;
         }
@@ -141,7 +192,7 @@ export class Ball {
     this.syncMesh(dt);
   }
 
-  kick(fromPlayer, direction, power, lift = 0.5) {
+  kick(fromPlayer, direction, power, lift = 0.5, type = 'kick') {
     const dir = direction.clone();
     dir.y = 0;
     if (dir.lengthSq() === 0) dir.copy(fromPlayer.lastMoveDir);
@@ -153,6 +204,14 @@ export class Ball {
     this.velocity.copy(dir.multiplyScalar(Math.min(power, CONFIG.ball.maxSpeed)));
     this.velocity.y = lift;
     this.lastTouchTeam = fromPlayer.team;
+    this.lastKickInfo = {
+      type,
+      power,
+      lift,
+      fromTeam: fromPlayer.team,
+      fromPlayer,
+      age: 0
+    };
     fromPlayer.playKickAnimation?.();
     this.syncMesh(0.016);
   }
@@ -161,10 +220,36 @@ export class Ball {
     const targetLead = targetPlayer.velocity ? targetPlayer.velocity.clone().multiplyScalar(0.16) : new THREE.Vector3();
     const target = targetPlayer.position.clone().add(targetLead);
     const dir = target.sub(fromPlayer.position).normalize();
-    this.kick(fromPlayer, dir, power, 0.25);
+    this.kick(fromPlayer, dir, power, 0.25, 'pass');
     fromPlayer.playPassAnimation?.();
   }
 
+
+  header(fromPlayer, direction, power = 18, lift = 1.2, type = 'header') {
+    const dir = direction.clone ? direction.clone() : new THREE.Vector3(direction.x || 0, 0, direction.z || 0);
+    dir.y = 0;
+    if (dir.lengthSq() === 0) dir.copy(fromPlayer.lastMoveDir || new THREE.Vector3(0, 0, fromPlayer.team === 'blue' ? -1 : 1));
+    dir.normalize();
+
+    this.release(0.24);
+    this.owner = null;
+    this.lastOwner = fromPlayer;
+    this.position.copy(fromPlayer.position).addScaledVector(dir, 0.72);
+    this.position.y = Math.max(this.radius + 0.35, 1.82);
+    this.velocity.copy(dir.multiplyScalar(Math.min(power, CONFIG.ball.maxSpeed * 0.82)));
+    this.velocity.y = lift;
+    this.lastTouchTeam = fromPlayer.team;
+    this.lastKickInfo = {
+      type,
+      power,
+      lift,
+      fromTeam: fromPlayer.team,
+      fromPlayer,
+      age: 0
+    };
+    fromPlayer.playHeaderAnimation?.();
+    this.syncMesh(0.016);
+  }
 
 
   passToPoint(fromPlayer, targetPoint, power, lift = 0.22) {
@@ -173,8 +258,39 @@ export class Ball {
     dir.y = 0;
     if (dir.lengthSq() === 0) dir.copy(fromPlayer.lastMoveDir);
     dir.normalize();
-    this.kick(fromPlayer, dir, power, lift);
+    this.kick(fromPlayer, dir, power, lift, 'passToPoint');
     fromPlayer.playPassAnimation?.();
+  }
+
+
+  segmentDistanceToPlayer(a, b, pos) {
+    const av = new THREE.Vector2(a.x, a.z);
+    const bv = new THREE.Vector2(b.x, b.z);
+    const pv = new THREE.Vector2(pos.x, pos.z);
+    const ab = bv.clone().sub(av);
+    const lenSq = ab.lengthSq();
+    if (lenSq <= 0.00001) return pv.distanceTo(bv);
+    const t = THREE.MathUtils.clamp(pv.clone().sub(av).dot(ab) / lenSq, 0, 1);
+    return pv.distanceTo(av.addScaledVector(ab, t));
+  }
+
+  canAutoReceive(player, players, speed, flatDistance, sweptDistance) {
+    if (this.position.y > this.radius + 1.08) return false;
+    if (speed > 16.5) return false;
+    if (flatDistance > 1.38 && sweptDistance > 0.92) return false;
+
+    // Domínio limpo: se a bola vem para um atleta praticamente sozinho,
+    // ela não deve passar raspando por ele como se não houvesse controle.
+    let nearbyContestants = 0;
+    for (const other of players) {
+      if (!other || other.hp <= 0 || other === player) continue;
+      const d = new THREE.Vector2(this.position.x - other.position.x, this.position.z - other.position.z).length();
+      if (d < 2.35) nearbyContestants++;
+    }
+
+    const sameTeamPass = this.lastTouchTeam && this.lastTouchTeam === player.team;
+    const slowEnoughLoose = speed <= CONFIG.ball.freePickupSpeed * 1.85;
+    return nearbyContestants === 0 && (sameTeamPass || slowEnoughLoose);
   }
 
   syncMesh(dt) {

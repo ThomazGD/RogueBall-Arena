@@ -51,11 +51,11 @@ export class Game {
     const diffMul = this.getDifficultyMultiplier();
     this.teamBrains = {
       blue: { ...CONFIG.ai.baseBrain },
-      red: Object.fromEntries(Object.entries(CONFIG.ai.baseBrain).map(([k, v]) => [k, Math.min(1.35, v * diffMul)]))
+      red: Object.fromEntries(Object.entries(CONFIG.ai.baseBrain).map(([k, v]) => [k, Math.min(1.18, v * (0.98 + (diffMul - 1) * 0.55))]))
     };
     this.goalieBrains = {
       blue: { ...CONFIG.goalkeeper.baseBrain },
-      red: Object.fromEntries(Object.entries(CONFIG.goalkeeper.baseBrain).map(([k, v]) => [k, Math.min(1.30, v * diffMul)]))
+      red: Object.fromEntries(Object.entries(CONFIG.goalkeeper.baseBrain).map(([k, v]) => [k, Math.min(1.14, v * (0.98 + (diffMul - 1) * 0.45))]))
     };
     this.modifiers = this.blankModifiers();
 
@@ -67,6 +67,7 @@ export class Game {
     this.goalkeepers = [];
     this.spawnTeams();
     this.player = this.allies[this.controlledIndex];
+    this.firstPersonHiddenPlayer = null;
 
     window.addEventListener('resize', () => this.resize());
     this.setupTacticalControls();
@@ -179,7 +180,7 @@ export class Game {
         x: pos.x,
         z: pos.z,
         color: i === 0 ? 0x2f7cff : 0x4aa3ff,
-        speed: CONFIG.ai.speed * 0.98,
+        speed: CONFIG.ai.speed * 1.00,
         brain: this.teamBrains.blue
       }));
     });
@@ -193,7 +194,7 @@ export class Game {
         x: pos.x,
         z: pos.z,
         color: 0xff3d45,
-        speed: CONFIG.ai.speed + this.round * 0.18,
+        speed: CONFIG.ai.speed * 0.99 + this.round * 0.035,
         brain: this.teamBrains.red
       }));
     });
@@ -227,7 +228,7 @@ export class Game {
       x: redHome.x,
       z: redHome.z,
       color: 0xffb000,
-      speed: CONFIG.goalkeeper.speed + this.round * 0.08,
+      speed: CONFIG.goalkeeper.speed * 0.99 + this.round * 0.025,
       brain: this.goalieBrains.red
     }));
   }
@@ -250,11 +251,11 @@ export class Game {
     const diffMul = this.getDifficultyMultiplier();
     this.teamBrains = {
       blue: { ...CONFIG.ai.baseBrain },
-      red: Object.fromEntries(Object.entries(CONFIG.ai.baseBrain).map(([k, v]) => [k, Math.min(1.35, v * diffMul)]))
+      red: Object.fromEntries(Object.entries(CONFIG.ai.baseBrain).map(([k, v]) => [k, Math.min(1.18, v * (0.98 + (diffMul - 1) * 0.55))]))
     };
     this.goalieBrains = {
       blue: { ...CONFIG.goalkeeper.baseBrain },
-      red: Object.fromEntries(Object.entries(CONFIG.goalkeeper.baseBrain).map(([k, v]) => [k, Math.min(1.30, v * diffMul)]))
+      red: Object.fromEntries(Object.entries(CONFIG.goalkeeper.baseBrain).map(([k, v]) => [k, Math.min(1.14, v * (0.98 + (diffMul - 1) * 0.45))]))
     };
     this.modifiers = this.blankModifiers();
     this.lastEnemyCard = null;
@@ -327,7 +328,7 @@ export class Game {
         allies: this.allies,
         enemies: this.enemies,
         allPlayers: players,
-        difficulty: this.difficulty,
+        difficulty: Math.min(this.difficulty, 1.16),
         modifiers: this.modifiers,
         teamBrains: this.teamBrains,
         tacticalStyle: 'direct'
@@ -346,9 +347,20 @@ export class Game {
       });
     }
 
+    this.handleAutomaticHeaders(players);
     this.handlePlayerActions();
     this.resolvePlayerSpacing(players);
     this.ball.update(dt, this.arena, players);
+
+    // Defesa emergencial depois que a bola se moveu.
+    // Isso evita o bug de chute rápido atravessar o goleiro entre dois frames.
+    for (const keeper of this.goalkeepers) {
+      const teamBrain = this.goalieBrains?.[keeper.team] || {};
+      keeper.trySave(this.ball, this.arena, keeper.mixBrain(teamBrain));
+      keeper.updateGoalkeeperFacing(this.ball, this.arena);
+      keeper.syncMesh(dt);
+    }
+
     this.checkScores();
     this.updateCamera(dt);
     this.ui.updateHUD(this.player, this.round, this.timeLeft, this.ball.owner, this.allies.length, this.enemies.length, this.teamBrains, this.lastPlayerCard, this.lastEnemyCard, this.goalieBrains, this.enemyScore);
@@ -419,7 +431,7 @@ export class Game {
     const mode = this.input.consumeCameraMode?.();
     if (!mode) return;
     this.cameraMode = mode;
-    const labels = { follow: 'Jogador', broadcast: 'Transmissão/FIFA', ball: 'Bola' };
+    const labels = { follow: 'Jogador', broadcast: 'Transmissão/FIFA', ball: 'Bola', firstPerson: 'Visão do jogador' };
     this.flashText(`Câmera: ${labels[mode] || mode}`, 24, 520);
   }
 
@@ -436,11 +448,14 @@ export class Game {
     if (shootRelease && hasBall && this.player.canShoot()) {
       const direction = this.getAimDirection();
       const charge = shootRelease.curve ?? shootRelease.charge ?? 0;
-      const power = this.player.kickPower * (0.62 + charge * 0.92);
-      const lift = 0.22 + charge * 0.54;
-      this.ball.kick(this.player, direction, power, lift);
-      this.player.markShot(0.75 + charge * 0.45);
-      this.pulseActionText(charge > 0.72 ? 'CHUTE FORTE!' : 'Chute', charge);
+      const wantsHighShot = this.input.isDown('w') || charge > 0.58;
+      const wantsLowShot = this.input.isDown('s') && charge < 0.72;
+      const power = this.player.kickPower * (0.62 + charge * 0.98);
+      let lift = wantsLowShot ? 0.28 + charge * 0.75 : (wantsHighShot ? 1.65 + charge * 7.25 : 0.58 + charge * 2.4);
+      lift = THREE.MathUtils.clamp(lift, 0.22, 8.35);
+      this.ball.kick(this.player, direction, power, lift, wantsHighShot ? 'highKick' : 'kick');
+      this.player.markShot(0.72 + charge * 0.44);
+      this.pulseActionText(wantsHighShot ? 'CHUTE ALTO!' : (charge > 0.72 ? 'CHUTE FORTE!' : 'Chute'), charge);
       return;
     }
 
@@ -467,6 +482,12 @@ export class Game {
     }
 
     this.updateChargeHUD();
+
+    if (this.input.consumeHeader?.()) {
+      if (this.tryUserHeader()) return;
+      this.tryUserSteal(false);
+      return;
+    }
 
     if (this.input.consumeSteal()) {
       this.tryUserSteal(false);
@@ -541,6 +562,137 @@ export class Game {
       this.ball.position.copy(p.position).addScaledVector(dir, CONFIG.ball.ownerOffset * 1.04);
       this.ball.position.y = this.ball.radius;
     }
+  }
+
+
+  tryUserHeader() {
+    const p = this.player;
+    if (!p || p.hp <= 0 || !p.canShoot?.()) return false;
+    return this.tryHeaderForPlayer(p, true);
+  }
+
+  handleAutomaticHeaders(players) {
+    if (this.ball.owner) return;
+    if (!this.ball.velocity || this.ball.velocity.length() < 1.2) return;
+    const h = this.ball.position.y;
+    if (h < 1.25 || h > CONFIG.arena.goalHeight + 0.65) return;
+    if (this.ball.lastKickInfo?.type === 'header' && this.ball.lastKickInfo.age < 0.36) return;
+
+    let best = null;
+    let bestScore = -Infinity;
+    for (const p of players) {
+      if (!p || p === this.player || p.isGoalkeeper || p.hp <= 0 || !p.canShoot?.()) continue;
+      const dx = this.ball.position.x - p.position.x;
+      const dz = this.ball.position.z - p.position.z;
+      const flat = Math.sqrt(dx * dx + dz * dz);
+      if (flat > 1.55) continue;
+      const enemyGoal = this.arena.getGoalCenter(p.team);
+      const attackProgress = p.team === 'blue'
+        ? THREE.MathUtils.clamp((this.arena.depth / 2 - p.position.z) / this.arena.depth, 0, 1)
+        : THREE.MathUtils.clamp((p.position.z + this.arena.depth / 2) / this.arena.depth, 0, 1);
+      const toGoal = Math.max(0, 36 - p.position.distanceTo(enemyGoal)) * 0.06;
+      const score = (1.8 - flat) * 5 + attackProgress * 2.2 + toGoal + Math.random() * 0.35;
+      if (score > bestScore) { bestScore = score; best = p; }
+    }
+    if (best) this.tryHeaderForPlayer(best, false);
+  }
+
+  tryHeaderForPlayer(player, isUser = false) {
+    if (this.ball.owner) return false;
+    const ballHeight = this.ball.position.y;
+    if (ballHeight < 1.10 || ballHeight > CONFIG.arena.goalHeight + 0.80) return false;
+
+    const dx = this.ball.position.x - player.position.x;
+    const dz = this.ball.position.z - player.position.z;
+    const flatDistance = Math.sqrt(dx * dx + dz * dz);
+    const reach = isUser ? 1.70 : 1.52;
+    if (flatDistance > reach) return false;
+
+    const enemyGoal = this.arena.getGoalCenter(player.team);
+    const myTeam = player.team === 'blue' ? this.allies : this.enemies;
+    const otherTeam = player.team === 'blue' ? this.enemies : this.allies;
+    const distToGoal = player.position.distanceTo(enemyGoal);
+    const openHeader = this.hasLaneFromPlayer?.(player, enemyGoal, otherTeam, 2.0) ?? true;
+
+    let dir;
+    let power;
+    let lift;
+    let text = 'Cabeceio!';
+
+    if (isUser) {
+      dir = this.getAimDirection();
+      const aimToGoal = dir.dot(enemyGoal.clone().sub(player.position).setY(0).normalize());
+      const attackingHeader = distToGoal < 30 && aimToGoal > 0.35;
+      power = attackingHeader ? 19.5 : 14.0;
+      lift = attackingHeader ? 1.05 : 0.58;
+    } else {
+      const brain = this.teamBrains[player.team] || CONFIG.ai.baseBrain;
+      const angleGood = Math.abs(player.position.x) < CONFIG.arena.goalWidth * 0.86;
+      const shouldFinish = distToGoal < 24 && (openHeader || angleGood) && Math.random() < (0.38 + brain.shooting * 0.32);
+      if (shouldFinish) {
+        const target = enemyGoal.clone();
+        target.x += (Math.random() - 0.5) * CONFIG.arena.goalWidth * Math.max(0.20, 0.62 - brain.shooting * 0.22);
+        dir = target.sub(player.position).setY(0).normalize();
+        power = 17.2 + brain.shooting * 7.0;
+        lift = 0.85 + Math.random() * 0.7;
+      } else {
+        const mate = this.findHeaderPassOption(player, myTeam, otherTeam, enemyGoal);
+        if (!mate) return false;
+        dir = mate.position.clone().sub(player.position).setY(0).normalize();
+        power = 10.5 + player.position.distanceTo(mate.position) * 0.34;
+        lift = 0.42;
+        text = 'Cabeceou para o passe';
+      }
+    }
+
+    if (!dir || dir.lengthSq() < 0.001) return false;
+    this.ball.header(player, dir, power, lift, 'header');
+    player.playHeaderAnimation?.();
+    player.markShot?.(0.78);
+    if (isUser) this.flashText(text, 26, 420);
+    return true;
+  }
+
+  findHeaderPassOption(player, myTeam, otherTeam, enemyGoal) {
+    let best = null;
+    let bestScore = -Infinity;
+    for (const mate of myTeam) {
+      if (!mate || mate === player || mate.isGoalkeeper || mate.hp <= 0) continue;
+      const dist = player.position.distanceTo(mate.position);
+      if (dist < 2.2 || dist > 24) continue;
+      const pressure = this.getNearestDistanceToTeam(mate.position, otherTeam);
+      const forward = player.team === 'blue' ? player.position.z - mate.position.z : mate.position.z - player.position.z;
+      const goalBonus = Math.max(0, 34 - mate.position.distanceTo(enemyGoal)) * 0.05;
+      const roleBonus = mate.role === 'striker' ? 1.5 : mate.role === 'mid' ? 1.0 : 0.3;
+      const score = pressure * 0.35 + forward * 0.10 - dist * 0.06 + goalBonus + roleBonus;
+      if (score > bestScore) { bestScore = score; best = mate; }
+    }
+    return bestScore > -1.5 ? best : null;
+  }
+
+  getNearestDistanceToTeam(pos, team) {
+    let best = Infinity;
+    for (const p of team) {
+      if (!p || p.hp <= 0) continue;
+      best = Math.min(best, p.position.distanceTo(pos));
+    }
+    return best;
+  }
+
+  hasLaneFromPlayer(player, target, blockers, width = 2.0) {
+    const a = player.position;
+    const b = target;
+    const ab = b.clone().sub(a); ab.y = 0;
+    const lenSq = ab.lengthSq();
+    if (lenSq <= 0.001) return true;
+    for (const block of blockers) {
+      if (!block || block.hp <= 0) continue;
+      const ap = block.position.clone().sub(a); ap.y = 0;
+      const t = THREE.MathUtils.clamp(ap.dot(ab) / lenSq, 0, 1);
+      const closest = a.clone().addScaledVector(ab, t);
+      if (closest.distanceTo(block.position) < width) return false;
+    }
+    return true;
   }
 
   tryUserSteal(isSlide = false) {
@@ -757,18 +909,18 @@ export class Game {
   improveBrains() {
     // Evolução mais perceptível: a IA melhora reação, visão, passe, marcação,
     // posicionamento e finalização a cada rodada, sem ficar instantaneamente impossível.
-    const blueGain = 0.060 + Math.min(0.090, this.round * 0.010);
-    const redGain = 0.072 + Math.min(0.110, this.round * 0.012);
+    const blueGain = 0.070 + Math.min(0.095, this.round * 0.011);
+    const redGain = 0.064 + Math.min(0.086, this.round * 0.009);
     for (const k of Object.keys(this.teamBrains.blue)) {
-      this.teamBrains.blue[k] = Math.min(2.05, this.teamBrains.blue[k] + blueGain * (0.85 + Math.random() * 0.45));
-      this.teamBrains.red[k] = Math.min(2.25, this.teamBrains.red[k] + redGain * (0.85 + Math.random() * 0.5));
+      this.teamBrains.blue[k] = Math.min(2.20, this.teamBrains.blue[k] + blueGain * (0.85 + Math.random() * 0.45));
+      this.teamBrains.red[k] = Math.min(2.08, this.teamBrains.red[k] + redGain * (0.85 + Math.random() * 0.5));
     }
 
-    const keeperBlueGain = 0.055 + Math.min(0.085, this.round * 0.009);
-    const keeperRedGain = 0.065 + Math.min(0.105, this.round * 0.011);
+    const keeperBlueGain = 0.056 + Math.min(0.078, this.round * 0.008);
+    const keeperRedGain = 0.052 + Math.min(0.070, this.round * 0.007);
     for (const k of Object.keys(this.goalieBrains.blue)) {
-      this.goalieBrains.blue[k] = Math.min(2.08, this.goalieBrains.blue[k] + keeperBlueGain * (0.85 + Math.random() * 0.45));
-      this.goalieBrains.red[k] = Math.min(2.28, this.goalieBrains.red[k] + keeperRedGain * (0.85 + Math.random() * 0.5));
+      this.goalieBrains.blue[k] = Math.min(2.05, this.goalieBrains.blue[k] + keeperBlueGain * (0.85 + Math.random() * 0.45));
+      this.goalieBrains.red[k] = Math.min(1.98, this.goalieBrains.red[k] + keeperRedGain * (0.85 + Math.random() * 0.5));
     }
   }
 
@@ -790,7 +942,7 @@ export class Game {
       x: entry.x,
       z: entry.z,
       color: isBlue ? 0x4aa3ff : 0xff3d45,
-      speed: isBlue ? CONFIG.ai.speed * 0.98 : CONFIG.ai.speed + this.round * 0.16,
+      speed: isBlue ? CONFIG.ai.speed * 1.00 : CONFIG.ai.speed * 0.99 + this.round * 0.035,
       brain: isBlue ? this.teamBrains.blue : this.teamBrains.red
     });
     player.home.set(pos.x, 0, pos.z);
@@ -878,7 +1030,7 @@ export class Game {
     for (const enemy of this.enemies) {
       enemy.hp = enemy.maxHp;
       enemy.energy = enemy.maxEnergy;
-      enemy.aiSpeed *= 1.018;
+      enemy.aiSpeed *= 1.006;
       enemy.setBrain(this.teamBrains.red);
       enemy.syncMesh(0.016);
     }
@@ -897,7 +1049,21 @@ export class Game {
     let desired;
     let lookAt;
 
-    if (mode === 'follow') {
+    if (mode === 'firstPerson') {
+      const face = this.player.visualFacingDir?.clone?.() || this.player.facingDir?.clone?.() || this.player.lastMoveDir?.clone?.() || new THREE.Vector3(0, 0, -1);
+      face.y = 0;
+      if (face.lengthSq() < 0.001) face.set(0, 0, this.player.team === 'blue' ? -1 : 1);
+      face.normalize();
+
+      // Visão do jogador corrigida: câmera fica na altura dos olhos e um pouco
+      // à frente da cabeça. Além disso, o corpo do jogador controlado é ocultado
+      // só nessa câmera para não tampar a tela.
+      desired = this.player.position.clone()
+        .add(new THREE.Vector3(0, 2.55, 0))
+        .addScaledVector(face, 1.28);
+      lookAt = desired.clone().addScaledVector(face, 12.0);
+      lookAt.y = desired.y - 0.18 + Math.max(0, this.ball.position.y * 0.10);
+    } else if (mode === 'follow') {
       desired = this.player.position.clone().add(new THREE.Vector3(0, CONFIG.camera.followHeight, CONFIG.camera.followDistance));
       lookAt = this.player.position.clone().add(new THREE.Vector3(0, 1.2, -4.2));
     } else if (mode === 'ball') {
@@ -913,6 +1079,24 @@ export class Game {
 
     this.camera.position.lerp(desired, 1 - Math.pow(0.001, dt));
     this.camera.lookAt(lookAt);
+    this.applyFirstPersonVisibility(mode);
+  }
+
+  applyFirstPersonVisibility(mode) {
+    const shouldHide = mode === 'firstPerson';
+
+    if (this.firstPersonHiddenPlayer && this.firstPersonHiddenPlayer !== this.player) {
+      this.firstPersonHiddenPlayer.setProceduralBodyVisible(true);
+      this.firstPersonHiddenPlayer = null;
+    }
+
+    if (shouldHide && this.player) {
+      this.player.setProceduralBodyVisible(false);
+      this.firstPersonHiddenPlayer = this.player;
+    } else if (!shouldHide && this.firstPersonHiddenPlayer) {
+      this.firstPersonHiddenPlayer.setProceduralBodyVisible(true);
+      this.firstPersonHiddenPlayer = null;
+    }
   }
 
   render() { this.renderer.render(this.scene, this.camera); }

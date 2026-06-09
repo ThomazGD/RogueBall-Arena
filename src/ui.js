@@ -70,7 +70,7 @@ export class UI {
 
   updateTacticalLine({ cameraMode = 'broadcast', blueBrain = null, redBrain = null, goalieBrains = null, ballOwner = null, tacticalStyle = 'balanced' } = {}) {
     if (!this.tacticalLine) return;
-    const camNames = { follow: 'Jogador', broadcast: 'FIFA', ball: 'Bola' };
+    const camNames = { follow: 'Jogador', broadcast: 'FIFA', ball: 'Bola', firstPerson: '1ª pessoa' };
     const avg = (b) => b ? Math.round(((b.vision + b.passing + b.marking + b.positioning) / 4) * 100) : 0;
     const keeperAvg = (b) => b ? Math.round(((b.reflex + b.positioning + b.handling + b.distribution) / 4) * 100) : 0;
     const owner = ballOwner ? (ballOwner.team === 'blue' ? 'Posse Azul' : 'Posse Rival') : 'Bola solta';

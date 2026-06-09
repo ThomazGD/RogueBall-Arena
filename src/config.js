@@ -42,21 +42,21 @@ export const CONFIG = {
     slideSpeed: 18.2
   },
   goalkeeper: {
-    speed: 7.15,
+    speed: 7.55,
     radius: 0.62,
-    catchDistance: 1.22,
-    diveDistance: 2.55,
-    catchBallSpeed: 15.8,
+    catchDistance: 1.72,
+    diveDistance: 4.45,
+    catchBallSpeed: 22.5,
     holdTime: 0.34,
     clearPower: 25,
     passPower: 17.5,
     baseBrain: {
       // Goleiro já começa mais esperto e melhora rodada a rodada.
-      reflex: 0.68,
-      positioning: 0.72,
-      handling: 0.64,
+      reflex: 0.92,
+      positioning: 0.90,
+      handling: 0.82,
       distribution: 0.72,
-      bravery: 0.66
+      bravery: 0.78
     }
   },
   ball: {
@@ -77,6 +77,8 @@ export const CONFIG = {
     hitCooldown: 0.85,
     kickPower: 18,
     passPower: 13,
+    dribbleCooldown: 1.15,
+    slideCooldown: 1.45,
     decisionCooldown: 0.16,
     pressureDistance: 10.5,
     passDistance: 25,
@@ -90,8 +92,10 @@ export const CONFIG = {
       reaction: 0.80,
       passing: 0.82,
       marking: 0.80,
-      shooting: 0.76,
-      aggression: 0.70,
+      shooting: 0.75,
+      aggression: 0.72,
+      dribbling: 0.74,
+      tackling: 0.72,
       positioning: 0.84
     }
   },
